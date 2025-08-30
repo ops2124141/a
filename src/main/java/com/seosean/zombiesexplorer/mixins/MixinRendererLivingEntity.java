@@ -26,7 +26,10 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import com.seosean.zombiesexplorer.mixinsinterface.IMixinEntityLivingBase;
 
 import java.util.List;
 
@@ -84,8 +87,47 @@ public abstract class MixinRendererLivingEntity<T extends EntityLivingBase> exte
     @Shadow
     protected abstract void renderModel(T entitylivingbaseIn, float p_77036_2_, float p_77036_3_, float p_77036_4_, float p_77036_5_, float p_77036_6_, float p_77036_7_);
 
+    // Check if the entity is being tracked by ZombiesExplorer
+    @Unique
+    private boolean zombiesExplorer$isTrackedEntity(EntityLivingBase entity) {
+        if (ZombiesExplorer.ENABLED && entity != null) {
+            return ZombiesExplorer.getInstance().getSpawnPatternNotice().allEntities.contains(entity) ||
+                    ZombiesExplorer.getInstance().getSpawnPatternNotice().powerupPredictMobList.contains(entity) ||
+                    ZombiesExplorer.getInstance().getSpawnPatternNotice().powerupEnsuredMobList.contains(entity) ||
+                    ZombiesExplorer.getInstance().getSpawnPatternNotice().badhsMobList.contains(entity) ||
+                    ZombiesExplorer.getInstance().getSpawnPatternNotice().entitiesOnLine.contains(entity) ||
+                    ZombiesExplorer.getInstance().getSpawnPatternNotice().dyingEntities.containsKey(entity);
+        }
+        return false;
+    }
+
+    // Override the isInvisible check for tracked entities
+    @Redirect(method = "doRender*", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/EntityLivingBase;isInvisible()Z"))
+    private boolean onIsInvisibleCheck(EntityLivingBase entity) {
+        // If this entity is tracked by our mod, and we want to show invisible mobs, return false
+        if (zombiesExplorer$isTrackedEntity(entity)) {
+            return false; // Make the mob visible regardless of its actual invisibility state
+        }
+        // Otherwise use the original invisibility state
+        return entity.isInvisible();
+    }
+
     @Inject(method = "doRender*", at = @At(value = "HEAD"), cancellable = true)
-    public void doRender(EntityLivingBase entity, double x, double y, double z, float entityYaw, float partialTicks, CallbackInfo ci) {
+    public void doRender(EntityLivingBase entity, double x, double y, double z, float entityYaw, float partialTicks, CallbackInfo ci) {// Force entity to be treated as visible if it's being tracked
+        boolean wasInvisible = false;
+        if (entity != null && zombiesExplorer$isTrackedEntity(entity) && entity.isInvisible()) {
+            // Store original invisibility state
+            wasInvisible = true;
+            // Temporarily make entity visible for rendering - use try/catch to prevent crashes
+            try {
+                if (entity instanceof IMixinEntityLivingBase) {
+                    ((IMixinEntityLivingBase)entity).zombiesExplorer$setInvisible(false);
+                }
+            } catch (Exception e) {
+                // Safely ignore any casting errors
+            }
+        }
+
         if (zombiesExplorer$renderType != null) {
             if (net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new net.minecraftforge.client.event.RenderLivingEvent.Pre(entity, (RendererLivingEntity) (Object) this, x, y, z)))
                 return;
@@ -191,6 +233,12 @@ public abstract class MixinRendererLivingEntity<T extends EntityLivingBase> exte
                 }
             }
             net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new net.minecraftforge.client.event.RenderLivingEvent.Post(entity, (RendererLivingEntity) (Object) this, x, y, z));
+
+            // Restore original invisibility state
+            if (wasInvisible) {
+                ((IMixinEntityLivingBase)entity).zombiesExplorer$setInvisible(true);
+            }
+
             ci.cancel();
         }
     }
@@ -258,6 +306,10 @@ public abstract class MixinRendererLivingEntity<T extends EntityLivingBase> exte
                 GlStateManager.scale(-0.02666667F, -0.02666667F, 0.02666667F);
                 GlStateManager.translate(0.0F, 9.374999F, 0.0F);
                 GlStateManager.disableLighting();
+
+                // DISABLE DEPTH TEST TO RENDER THROUGH WALLS
+                GlStateManager.disableDepth();
+
                 GlStateManager.depthMask(false);
                 GlStateManager.enableBlend();
                 GlStateManager.disableTexture2D();
@@ -274,6 +326,10 @@ public abstract class MixinRendererLivingEntity<T extends EntityLivingBase> exte
                 GlStateManager.enableTexture2D();
                 GlStateManager.depthMask(true);
                 fontrenderer.drawString(s, -fontrenderer.getStringWidth(s) / 2, 0, 553648127);
+
+                // RE-ENABLE DEPTH TEST
+                GlStateManager.enableDepth();
+
                 GlStateManager.enableLighting();
                 GlStateManager.disableBlend();
                 GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
@@ -304,6 +360,10 @@ public abstract class MixinRendererLivingEntity<T extends EntityLivingBase> exte
             GlStateManager.rotate(this.renderManager.playerViewX, 1.0F, 0.0F, 0.0F);
             GlStateManager.scale(-f1, -f1, f1);
             GlStateManager.disableLighting();
+
+            // DISABLE DEPTH TEST TO RENDER THROUGH WALLS
+            GlStateManager.disableDepth();
+
             GlStateManager.depthMask(false);
             GlStateManager.enableBlend();
             GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
@@ -326,7 +386,10 @@ public abstract class MixinRendererLivingEntity<T extends EntityLivingBase> exte
             tessellator.draw();
             GlStateManager.enableTexture2D();
             fontrenderer.drawString(str, -fontrenderer.getStringWidth(str) / 2, i, 553648127);
+
+            // RE-ENABLE DEPTH TEST
             GlStateManager.enableDepth();
+
             GlStateManager.depthMask(true);
             fontrenderer.drawString(str, -fontrenderer.getStringWidth(str) / 2, i, -1);
             GlStateManager.enableLighting();
@@ -355,4 +418,25 @@ public abstract class MixinRendererLivingEntity<T extends EntityLivingBase> exte
         }
     }
 
-}
+    // Add the new method here
+    @Inject(method = "setScoreTeamColor", at = @At("RETURN"), cancellable = true)
+    private void onSetScoreTeamColor(T entityLivingBaseIn, CallbackInfoReturnable<Boolean> cir) {
+        if (this.renderOutlines && ZombiesExplorer.ENABLED && entityLivingBaseIn instanceof EntityLivingBase && !entityLivingBaseIn.isDead) {
+            if (ZombiesExplorer.PowerupDetector && ZombiesExplorer.getInstance().getSpawnPatternNotice().powerupPredictMobList.contains(entityLivingBaseIn)) {
+                GlStateManager.color(1.0F, 0.3333F, 0.3333F, 1.0F); // #FF5555 for powerup predicted
+                cir.setReturnValue(true);
+            } else if (ZombiesExplorer.PowerupDetector && ZombiesExplorer.getInstance().getSpawnPatternNotice().powerupEnsuredMobList.contains(entityLivingBaseIn)) {
+                GlStateManager.color(0.5F, 0.0F, 0.0F, 1.0F); // Dark red for powerup ensured
+                cir.setReturnValue(true);
+            } else if (ZombiesExplorer.BadHeadShotDetector && ZombiesExplorer.getInstance().getSpawnPatternNotice().badhsMobList.contains(entityLivingBaseIn) &&
+                    ZombiesExplorer.getInstance().getSpawnPatternNotice().badhsMobList.get(ZombiesExplorer.getInstance().getSpawnPatternNotice().badhsMobList.size() - 1).equals(entityLivingBaseIn)) {
+                GlStateManager.color(0.0F, 1.0F, 0.0F, 1.0F); // Green for bad headshot
+                cir.setReturnValue(true);
+            } else if (ZombiesExplorer.BadHeadShotDetector && ZombiesExplorer.getInstance().getSpawnPatternNotice().entitiesOnLine.contains(entityLivingBaseIn)) {
+                GlStateManager.color(1.0F, 1.0F, 0.0F, 1.0F); // Yellow for derived bad headshot
+                cir.setReturnValue(true);
+            }
+        }
+    }
+
+} // Class closing brace
