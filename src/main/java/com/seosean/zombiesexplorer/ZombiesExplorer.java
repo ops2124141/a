@@ -17,6 +17,7 @@ import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.InputEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import org.apache.logging.log4j.Logger;
 import org.lwjgl.input.Keyboard;
 import com.seosean.zombiesexplorer.utils.NotificationRenderer;
@@ -237,6 +238,11 @@ public class ZombiesExplorer {
     public SpawnPatternNotice getSpawnPatternNotice() {
         return spawnPatternNotice;
     }
+    
+    // Access method for mob counter handler (for debugging)
+    public MobCounterHandler getMobCounterHandler() {
+        return mobCounterHandler;
+    }
 
     public KeyBinding keyToggleConfig;
     public KeyBinding keyToggleWhiteOutlines;
@@ -381,6 +387,36 @@ public class ZombiesExplorer {
         // If any keybind changed, save the config
         if (anyChanged) {
             config.save();
+        }
+    }
+    
+    // Debug command handler for mob counter
+    @SubscribeEvent
+    public void onChatReceived(ClientChatReceivedEvent event) {
+        if (!ENABLED) return;
+        
+        String message = event.message.getUnformattedText();
+        
+        // Check for debug command (only visible to the user who typed it)
+        if (message.startsWith("/zemobdebug") && event.type == 0) {
+            if (mobCounterHandler != null) {
+                String debugInfo = mobCounterHandler.getDebugInfo();
+                // Print to console for debugging
+                System.out.println(debugInfo);
+                // Show brief notification
+                NotificationRenderer.getInstance().displayNotification("§eDebug info printed to console", 2000);
+                event.setCanceled(true); // Hide the command from chat
+            }
+        }
+        
+        // Quick toggle command
+        if (message.startsWith("/zetoggle mobcounter") && event.type == 0) {
+            MobCounter = !MobCounter;
+            String status = MobCounter ? "§aON" : "§4OFF";
+            NotificationRenderer.getInstance().displayNotification("§eMob Counter: " + status, 1500);
+            config.get(Configuration.CATEGORY_GENERAL, "Mob Counter", false).set(MobCounter);
+            config.save();
+            event.setCanceled(true); // Hide the command from chat
         }
     }
 

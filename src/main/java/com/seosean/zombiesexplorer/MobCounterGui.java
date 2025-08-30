@@ -41,9 +41,10 @@ public class MobCounterGui {
     // Colors
     private static final int COLOR_GREEN = 0xFF00FF00; // Green when mobs present
     private static final int COLOR_RED = 0xFFFF0000;   // Red when no mobs
-    private static final int COLOR_BACKGROUND = 0x80000000; // Semi-transparent black
+    private static final int COLOR_BACKGROUND = 0x90000000; // Semi-transparent black (more opaque)
     private static final int COLOR_BORDER = 0xFF808080;     // Gray border
     private static final int COLOR_RESIZE_HANDLE = 0xFFFFFFFF; // White resize handle
+    private static final int COLOR_WAVE_TEXT = 0xFFFFFF99;     // Light yellow for wave text
     
     public MobCounterGui(MobCounterHandler handler) {
         this.mobCounterHandler = handler;
@@ -61,6 +62,38 @@ public class MobCounterGui {
         }
         
         renderMobCounter();
+        
+        // Optional: Render tooltip when hovering
+        if (isMouseOverCounter(getMouseX(), getMouseY())) {
+            renderTooltip();
+        }
+    }
+    
+    private int getMouseX() {
+        ScaledResolution sr = new ScaledResolution(mc);
+        return Mouse.getX() * sr.getScaledWidth() / mc.displayWidth;
+    }
+    
+    private int getMouseY() {
+        ScaledResolution sr = new ScaledResolution(mc);
+        return sr.getScaledHeight() - Mouse.getY() * sr.getScaledHeight() / mc.displayHeight - 1;
+    }
+    
+    private void renderTooltip() {
+        if (isDragging || isResizing) return; // Don't show tooltip while interacting
+        
+        FontRenderer fr = mc.fontRendererObj;
+        String tooltip = "Drag to move • Resize from corner";
+        int tooltipWidth = fr.getStringWidth(tooltip);
+        
+        int tooltipX = posX + width + 5; // To the right of the counter
+        int tooltipY = posY;
+        
+        // Draw tooltip background
+        drawRect(tooltipX - 2, tooltipY - 2, tooltipX + tooltipWidth + 2, tooltipY + 10, 0xC0000000);
+        
+        // Draw tooltip text
+        fr.drawStringWithShadow(tooltip, tooltipX, tooltipY, 0xFFFFFFFF);
     }
     
     private void renderMobCounter() {
@@ -102,13 +135,21 @@ public class MobCounterGui {
         drawRect(posX + width - handleSize, posY + height - handleSize, 
                 posX + width, posY + height, COLOR_RESIZE_HANDLE);
         
-        // Draw text
+        // Draw text centered with better formatting
         int textY = posY + 5;
         int countTextX = posX + (width - countTextWidth) / 2;
         int waveTextX = posX + (width - waveTextWidth) / 2;
         
+        // Draw mob count with appropriate color and larger font effect
         fr.drawStringWithShadow(countText, countTextX, textY, textColor);
-        fr.drawStringWithShadow(waveText, waveTextX, textY + 12, 0xFFFFFFFF); // White for wave text
+        
+        // Draw wave text in smaller, lighter color
+        fr.drawStringWithShadow(waveText, waveTextX, textY + 12, COLOR_WAVE_TEXT);
+        
+        // Add visual indicator when dragging or resizing
+        if (isDragging || isResizing) {
+            drawHollowRect(posX - 1, posY - 1, posX + width + 1, posY + height + 1, 0xFFFFFF00); // Yellow highlight
+        }
     }
     
     @SubscribeEvent
@@ -122,8 +163,8 @@ public class MobCounterGui {
     
     private void handleMouseInput() {
         ScaledResolution sr = new ScaledResolution(mc);
-        int mouseX = Mouse.getX() * sr.getScaledWidth() / mc.displayWidth;
-        int mouseY = sr.getScaledHeight() - Mouse.getY() * sr.getScaledHeight() / mc.displayHeight - 1;
+        int mouseX = getMouseX();
+        int mouseY = getMouseY();
         
         boolean leftButton = Mouse.isButtonDown(0);
         
@@ -147,20 +188,29 @@ public class MobCounterGui {
             }
             
             if (isDragging) {
-                // Update position
-                posX = mouseX - dragStartX;
-                posY = mouseY - dragStartY;
-                ensureWithinBounds(sr);
+                // Update position with bounds checking
+                int newX = mouseX - dragStartX;
+                int newY = mouseY - dragStartY;
+                
+                // Ensure we don't drag outside screen bounds
+                posX = Math.max(0, Math.min(newX, sr.getScaledWidth() - width));
+                posY = Math.max(0, Math.min(newY, sr.getScaledHeight() - height));
             } else if (isResizing) {
-                // Update size
+                // Update size with constraints
                 int deltaX = mouseX - resizeStartX;
                 int deltaY = mouseY - resizeStartY;
                 
-                width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, initialWidth + deltaX));
-                height = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, initialHeight + deltaY));
+                int newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, initialWidth + deltaX));
+                int newHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, initialHeight + deltaY));
+                
+                // Ensure resizing doesn't push counter off screen
+                if (posX + newWidth <= sr.getScaledWidth() && posY + newHeight <= sr.getScaledHeight()) {
+                    width = newWidth;
+                    height = newHeight;
+                }
             }
         } else {
-            // Release mouse
+            // Release mouse - save position if anything changed
             if (isDragging || isResizing) {
                 savePosition(); // Save position/size to config
             }

@@ -46,19 +46,29 @@ public class MobCounterHandler {
         }
         
         if (mc.theWorld == null || mc.thePlayer == null) {
-            countedMobs.clear();
-            currentMobCount = 0;
-            currentWave = 1;
-            waveStartTime = 0;
+            resetCounterState();
             return;
         }
         
-        // Update mob count every tick for real-time accuracy
-        scanAndCountMobs();
-        cleanupDeadMobs();
-        
-        // Sync wave information with MobHighlightHandler if available
-        syncWaveInfo();
+        try {
+            // Update mob count every tick for real-time accuracy
+            scanAndCountMobs();
+            cleanupDeadMobs();
+            
+            // Sync wave information with MobHighlightHandler if available
+            syncWaveInfo();
+        } catch (Exception e) {
+            // Graceful error handling - reset counter on error
+            System.err.println("[ZombiesExplorer] Error in MobCounterHandler: " + e.getMessage());
+            resetCounterState();
+        }
+    }
+    
+    private void resetCounterState() {
+        countedMobs.clear();
+        currentMobCount = 0;
+        currentWave = 1;
+        waveStartTime = 0;
     }
     
     private void syncWaveInfo() {
@@ -207,5 +217,25 @@ public class MobCounterHandler {
     // Check if there are any mobs alive
     public boolean hasMobs() {
         return currentMobCount > 0;
+    }
+    
+    // Debug method to get detailed mob information
+    public String getDebugInfo() {
+        StringBuilder info = new StringBuilder();
+        info.append("Mob Counter Debug Info:\n");
+        info.append("- Current Count: ").append(currentMobCount).append("\n");
+        info.append("- Current Wave: ").append(currentWave).append("\n");
+        info.append("- Tracked Entities: ").append(countedMobs.size()).append("\n");
+        info.append("- Wave Start Time: ").append(waveStartTime).append("\n");
+        info.append("- Has Mobs: ").append(hasMobs()).append("\n");
+        
+        if (mobHighlightHandler != null) {
+            info.append("- Synced with MobHighlightHandler: true\n");
+            info.append("- Synced Round: ").append(mobHighlightHandler.getCurrentRound()).append("\n");
+        } else {
+            info.append("- Synced with MobHighlightHandler: false\n");
+        }
+        
+        return info.toString();
     }
 }
