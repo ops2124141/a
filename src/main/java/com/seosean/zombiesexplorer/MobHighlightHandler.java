@@ -215,6 +215,11 @@ public class MobHighlightHandler {
     public void forceRound1() {
         setCurrentRound(1);
     }
+    
+    // Public method to get current round for other handlers
+    public int getCurrentRound() {
+        return currentRound;
+    }
 
     private void scanForMobs() {
         boolean inGreenPeriod = isInGreenPeriod();

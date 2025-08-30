@@ -38,6 +38,10 @@ public class ZombiesExplorer {
     private Configuration config;
     private Logger logger;
 
+    // Mob counter components
+    private MobCounterHandler mobCounterHandler;
+    private MobCounterGui mobCounterGui;
+
     // Track keybind states to handle multiple presses
     private final Map<KeyBinding, Boolean> keyWasPressed = new HashMap<>();
 
@@ -63,10 +67,21 @@ public class ZombiesExplorer {
         this.ConfigLoad();
         INSTANCE = this;
         MinecraftForge.EVENT_BUS.register(this);
+        MinecraftForge.EVENT_BUS.register(NotificationRenderer.getInstance()); // Register notification renderer
         MinecraftForge.EVENT_BUS.register(spawnPatternNotice = new SpawnPatternNotice());
         MinecraftForge.EVENT_BUS.register(new PlayerVisibilityHandler()); // Register the player visibility handler
         MinecraftForge.EVENT_BUS.register(new BossHighlightHandler()); // Register the boss highlight handler
-        MinecraftForge.EVENT_BUS.register(new MobHighlightHandler()); // Register the new mob highlight handler
+        
+        // Create MobHighlightHandler and register it
+        MobHighlightHandler mobHighlightHandler = new MobHighlightHandler();
+        MinecraftForge.EVENT_BUS.register(mobHighlightHandler);
+        
+        // Initialize and register mob counter system
+        mobCounterHandler = new MobCounterHandler();
+        mobCounterHandler.setMobHighlightHandler(mobHighlightHandler); // Link for wave syncing
+        mobCounterGui = new MobCounterGui(mobCounterHandler);
+        MinecraftForge.EVENT_BUS.register(mobCounterHandler);
+        MinecraftForge.EVENT_BUS.register(mobCounterGui);
 
         // Initialize keybinds with values from config
         initKeybinds();
@@ -78,6 +93,7 @@ public class ZombiesExplorer {
         keyWasPressed.put(keyToggleBossHighlight, false);
         keyWasPressed.put(keyToggleMobChams, false);
         keyWasPressed.put(keyToggleMobESP, false);
+        keyWasPressed.put(keyToggleMobCounter, false);
 
         if (!ZombiesExplorer.isShowSpawnTimeInstalled()) {
             logger.error("To use ZombiesExplorer, you must install ShowSpawnTime 2.0.");
@@ -95,6 +111,7 @@ public class ZombiesExplorer {
         int bossHighlightKey = config.getInt("keyToggleBossHighlight", KEYBIND_CATEGORY, Keyboard.KEY_B, 0, 256, "Key to toggle boss highlight");
         int mobChamsKey = config.getInt("keyToggleMobChams", KEYBIND_CATEGORY, Keyboard.KEY_C, 0, 256, "Key to toggle mob chams");
         int mobESPKey = config.getInt("keyToggleMobESP", KEYBIND_CATEGORY, Keyboard.KEY_E, 0, 256, "Key to toggle mob ESP");
+        int mobCounterKey = config.getInt("keyToggleMobCounter", KEYBIND_CATEGORY, Keyboard.KEY_M, 0, 256, "Key to toggle mob counter");
 
         // Create keybindings with these values
         keyToggleConfig = new KeyBinding("Config", configKey, "Zombies Explorer");
@@ -103,6 +120,7 @@ public class ZombiesExplorer {
         keyToggleBossHighlight = new KeyBinding("Toggle Boss Highlight", bossHighlightKey, "Zombies Explorer");
         keyToggleMobChams = new KeyBinding("Toggle Mob Chams", mobChamsKey, "Zombies Explorer");
         keyToggleMobESP = new KeyBinding("Toggle Mob ESP", mobESPKey, "Zombies Explorer");
+        keyToggleMobCounter = new KeyBinding("Toggle Mob Counter", mobCounterKey, "Zombies Explorer");
 
         // Register the keybindings
         ClientRegistry.registerKeyBinding(keyToggleConfig);
@@ -111,6 +129,7 @@ public class ZombiesExplorer {
         ClientRegistry.registerKeyBinding(keyToggleBossHighlight);
         ClientRegistry.registerKeyBinding(keyToggleMobChams);
         ClientRegistry.registerKeyBinding(keyToggleMobESP);
+        ClientRegistry.registerKeyBinding(keyToggleMobCounter);
     }
 
     public static boolean isShowSpawnTimeInstalled(){
@@ -139,6 +158,7 @@ public class ZombiesExplorer {
     public static boolean BossHighlight; // Option for boss highlighting
     public static boolean MobChams; // New option for mob chams
     public static boolean MobESP; // New option for mob ESP
+    public static boolean MobCounter; // New option for mob counter
 
     public void ConfigLoad() {
         config.load();
@@ -155,6 +175,7 @@ public class ZombiesExplorer {
         String commentBossHighlight; // New comment for boss highlighting
         String commentMobChams; // New comment for mob chams
         String commentMobESP; // New comment for mob ESP
+        String commentMobCounter; // New comment for mob counter
 
         commentPowerupDetector = "Powerup Detector";
         PowerupDetector = config.get(Configuration.CATEGORY_GENERAL, "Powerup Detector", true, commentPowerupDetector).getBoolean();
@@ -189,6 +210,9 @@ public class ZombiesExplorer {
         commentMobESP = "Show white hitboxes around mobs";
         MobESP = config.get(Configuration.CATEGORY_GENERAL, "Mob ESP", false, commentMobESP).getBoolean();
 
+        commentMobCounter = "Show real-time mob counter overlay";
+        MobCounter = config.get(Configuration.CATEGORY_GENERAL, "Mob Counter", false, commentMobCounter).getBoolean();
+
         config.save();
         logger.info("Finished loading config. ");
     }
@@ -220,6 +244,7 @@ public class ZombiesExplorer {
     public KeyBinding keyToggleBossHighlight;
     public KeyBinding keyToggleMobChams;
     public KeyBinding keyToggleMobESP;
+    public KeyBinding keyToggleMobCounter;
 
     @SubscribeEvent
     public void toggleGUI(InputEvent.KeyInputEvent event) {
@@ -230,6 +255,7 @@ public class ZombiesExplorer {
         checkKeyBinding(keyToggleBossHighlight);
         checkKeyBinding(keyToggleMobChams);
         checkKeyBinding(keyToggleMobESP);
+        checkKeyBinding(keyToggleMobCounter);
     }
 
     // New helper method to check and handle individual keybinds
@@ -287,6 +313,14 @@ public class ZombiesExplorer {
                 config.get(Configuration.CATEGORY_GENERAL, "Mob ESP", false).set(MobESP);
                 config.save();
             }
+            // Toggle for mob counter
+            else if (key == keyToggleMobCounter) {
+                MobCounter = !MobCounter;
+                String status = MobCounter ? "§aON" : "§4OFF";
+                NotificationRenderer.getInstance().displayNotification("§eToggled Mob Counter: " + status, 1000);
+                config.get(Configuration.CATEGORY_GENERAL, "Mob Counter", false).set(MobCounter);
+                config.save();
+            }
         }
 
         // Update the pressed state for next check
@@ -336,6 +370,11 @@ public class ZombiesExplorer {
 
         if (keyToggleMobESP.getKeyCode() != config.getInt("keyToggleMobESP", KEYBIND_CATEGORY, Keyboard.KEY_E, 0, 256, "")) {
             config.get(KEYBIND_CATEGORY, "keyToggleMobESP", Keyboard.KEY_E).set(keyToggleMobESP.getKeyCode());
+            anyChanged = true;
+        }
+
+        if (keyToggleMobCounter.getKeyCode() != config.getInt("keyToggleMobCounter", KEYBIND_CATEGORY, Keyboard.KEY_M, 0, 256, "")) {
+            config.get(KEYBIND_CATEGORY, "keyToggleMobCounter", Keyboard.KEY_M).set(keyToggleMobCounter.getKeyCode());
             anyChanged = true;
         }
 
